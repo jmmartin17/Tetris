@@ -1,0 +1,1697 @@
+
+.nolist
+#include "ti83plus.inc"
+#include "Mirage.inc"
+.list
+.org $9d93
+.db $bb,$6d
+	ret
+.db 1
+.db %11111011^255,%11011111
+.db %00100010^255,%00000100
+.db %00100011^255,%11000100
+.db %00100010^255,%00000100
+.db %00100010^255,%00000100
+.db %00100011^255,%11000100
+.db %00000000^255,%00000000
+.db %11110011,%11101111^255
+.db %10001000,%10010000^255
+.db %10001000,%10001110^255
+.db %11110000,%10000001^255
+.db %10100000,%10000001^255
+.db %10010011,%11101110^255
+.db %00000000,%00000000^255
+.db %00000000,%00000000^255
+.db "NGTetris 1.2",0
+arena .equ savesscreen+50
+randData .equ savesscreen+48
+
+start_program:
+	di
+	im 1
+	ei
+	call setup_bg
+	set bufferonly,(iy+plotflag3)
+	set fullscrndraw,(iy+apiflg4)
+	ld b,72
+	ld c,27
+	ld d,95
+	ld e,c
+	ld h,1
+	bcall(_iline)
+	set textwrite,(iy+sgrflags)
+	ld de,73+(38*256)
+	ld hl,next_txt
+	call setvputs
+	ld de,73
+	ld hl,lines_txt
+	call setvputs
+	ld de,73+(12*256)
+	ld hl,score_txt
+	call setvputs
+	ld de,73+(24*256)
+	ld hl,level_txt
+	call setvputs
+	res textwrite,(iy+sgrflags)
+	ld a,(wb_flag)
+	or a
+	jp nz,rec
+	call disp_hs
+	ld hl,arena
+	ld c,15
+	xor a
+	ld d,1
+set_arena_1:
+	ld (hl),d
+	inc hl
+	ld b,10
+set_arena_2:
+	ld (hl),a
+	inc hl
+	djnz set_arena_2
+	ld (hl),d
+	inc hl
+	dec c
+	jr nz,set_arena_1
+	ld b,36
+set_arena_3:
+	ld (hl),d
+	inc hl
+	djnz set_arena_3
+	ld de,arena_safe
+	ld hl,arena
+	ld bc,18*12
+	ldir
+#ifdef bg
+	ld (shift_bg+1),a
+#endif
+	ld b,81
+	ld hl,cur_x
+res_loop:
+	ld (hl),a
+	inc hl
+	djnz res_loop
+	ld hl,piece_formats
+	ld (next_piece_addr),hl
+	inc a
+	ld (mov_counter),a
+	ld hl,exch_padding_b
+	ld de,exch_buf_padding
+	ld bc,16
+	ldir
+	ld a,60
+	ld (speed),a
+	ld hl,$ffff
+	ld (score),hl
+	jp new_piece
+
+main_loop:
+	ei
+	bcall(_getcsc)
+	cp skleft
+	call z,mov_left
+	cp skright
+	call z,mov_right
+	cp skup
+	call z,rotate_clockwise
+	cp sk2nd
+	call z,rotate_clockwise
+	cp skalpha
+	call z,rotate_counter_clockwise
+	cp skclear
+	jp z,exit_game
+	cp skyequ
+	jp z,instant_drop
+	cp skmode
+	jp z,teacher_key
+	cp skenter
+	call z,pause
+	cp skwindow
+	jp z,exchange
+	ld hl,d_counter
+	rlc (hl)
+	jr nc,dont_skip
+	ld a,$fe
+	out (1),a
+	ld a,(de)
+	in a,(1)
+	cp $fe
+	call z,mov_down
+dont_skip:
+	ld hl,mov_counter
+	inc (hl)
+	ld a,(hl)
+	ld hl,speed
+	cp (hl)
+	call z,def_mov_down
+#ifdef bg
+	call shift_bg
+#endif
+	call copy_exch
+	call draw_arena
+	call ifastcopy
+	jr main_loop
+
+rec:
+	call check_collision_vert
+	call plot_scores
+	call plot_bytemap
+	call plot_next
+	jr main_loop
+pause:
+	bcall(_getcsc)
+	sub skenter
+	ret z
+	jr pause
+
+#ifdef bg
+shift_bg:		;background jump table
+	jr bg_shift_0
+bg_shift_0:
+	jp bg_0
+bg_shift_1:
+	jp bg_1
+bg_shift_2:
+	jp bg_2
+bg_shift_3:
+	jp bg_3
+bg_shift_4:
+	jp bg_4
+bg_shift_5:
+	jp bg_5
+bg_shift_6:
+	jp bg_6
+bg_shift_7:
+	jp bg_7
+bg_shift_8:
+	jp bg_8
+bg_shift_9:
+	jp bg_9
+bg_shift_10:
+	jp bg_10
+bg_shift_11:
+	jp bg_0
+bg_shift_12:
+	jp bg_1
+bg_shift_13:
+	jp bg_2
+bg_shift_14:
+	jp bg_3
+bg_shift_15:
+	jp bg_4
+bg_shift_16:
+	jp bg_5
+bg_shift_17:
+	jp bg_6
+bg_shift_18:
+	jp bg_7
+bg_shift_19:
+	jp bg_8
+bg_shift_20:
+	jp bg_9
+bg_shift_21:
+	jp bg_10
+bg_shift_22:
+	jp bg_0
+bg_shift_23:
+	jp bg_1
+bg_shift_24:
+	jp bg_2
+#endif
+
+exchange:
+	ld hl,(exchange_piece_addr)
+	ld a,h
+	or l
+	jr nz,exchange_full
+	ld hl,(piece_addr)
+	ld (exchange_piece_addr),hl
+	call check_collision_vert
+	call plot_exch
+	jp new_piece
+exchange_full:
+	ld hl,(exchange_piece_addr)
+	ld de,(piece_addr)
+	ld (exchange_piece_addr),de
+	ld (piece_addr),hl
+	xor a
+	ld (cur_y),a
+	ld a,4
+	ld (cur_x),a
+	ld b,0
+	call check_collision_vert
+	call plot_exch
+	call plot_bytemap
+	call draw_arena
+	jp main_loop
+
+plot_exch:
+	di
+	ld de,(exchange_piece_addr)
+	ld hl,exch_buf
+	ld ix,blank
+	ld b,2
+plot_exch_loop1:
+	ld a,(de)
+	ex af,af'
+	ld a,2
+plot_exch_loop2:
+	ex af,af'
+	ld c,2
+plot_exch_loop3:
+	push bc
+	rlca
+	push af
+	ld a,0
+	adc a,0
+	add a,a
+	add a,a
+	push de
+	ld d,0
+	ld e,a
+	push ix
+	add ix,de
+	ld c,4
+	push hl
+plot_exch_inner1:
+	ld a,(ix)
+	ld (hl),a
+	inc ix
+	inc hl
+	inc hl
+	dec c
+	jr nz,plot_exch_inner1
+	pop hl
+	pop ix
+	pop de
+	pop af
+	rlca
+	push af
+	ld a,0
+	adc a,0
+	add a,a
+	add a,a
+	push de
+	ld d,0
+	ld e,a
+	push ix
+	add ix,de
+	ld c,4
+	push hl
+plot_exch_inner2:
+	ld a,(ix)
+	rlca \ rlca \ rlca \ rlca
+	or (hl)
+	ld (hl),a
+	inc hl
+	inc hl
+	inc ix
+	dec c
+	jr nz,plot_exch_inner2
+	pop hl
+	inc hl
+	pop ix
+	pop de
+	pop af
+	pop bc
+	dec c
+	jr nz,plot_exch_loop3
+	push de
+	ld de,6
+	add hl,de
+	pop de
+	ex af,af'
+	dec a
+	jr nz,plot_exch_loop2
+	inc de
+	djnz plot_exch_loop1
+	ei
+	ret
+
+rotate_clockwise:
+	call check_collision_vert
+	ld a,(rotation)
+	inc a
+	cp 4
+	call z,rot_reset_1
+	ld (rotation),a
+	ld b,0
+	call check_collision_vert
+	push af
+	call plot_bytemap
+	pop af
+	or a
+	ret nz
+	ld de,arena
+	ld hl,arena_safe
+	ld bc,18*12
+	ldir
+	ld a,(rotation)
+	dec a
+	call m,rot_reset_2	;c flag doesn't work (?)
+	ld (rotation),a
+	call plot_bytemap
+	ret
+
+rotate_counter_clockwise:
+	call check_collision_vert
+	ld a,(rotation)
+	dec a
+	call m,rot_reset_2
+	ld (rotation),a
+	ld b,0
+	call check_collision_vert
+	push af
+	call plot_bytemap
+	pop af
+	or a
+	ret nz
+	ld de,arena
+	ld hl,arena_safe
+	ld bc,18*12
+	ldir
+	ld a,(rotation)
+	inc a
+	cp 4
+	call z,rot_reset_1
+	ld (rotation),a
+	call plot_bytemap
+	ret
+
+rot_reset_1:
+	xor a
+	ret
+
+rot_reset_2:
+	ld a,3
+	ret
+
+mov_left:
+	ld b,$ff
+	call check_collision_horiz
+	or a
+	jp z,plot_bytemap
+	ld hl,cur_x
+	dec (hl)
+	call plot_bytemap
+	xor a
+	ret
+
+mov_right:
+	ld b,1
+	call check_collision_horiz
+	or a
+	jp z,plot_bytemap
+	ld hl,cur_x
+	inc (hl)
+	call plot_bytemap
+	xor a
+	ret
+
+def_mov_down:
+	xor a
+	ld (mov_counter),a
+mov_down:
+	ld b,1
+	call check_collision_vert
+	push af
+	call plot_bytemap
+	pop af
+	or a
+	pop bc		;just so we're not stuck in this lame routine
+	jp z,new_piece
+	push bc
+	ld de,arena
+	ld hl,arena_safe
+	ld bc,18*12
+	ldir
+	ld hl,cur_y
+	inc (hl)
+	call plot_bytemap
+	xor a
+	ret
+
+instant_drop:
+	ld b,1
+	call check_collision_vert
+	push af
+	call plot_bytemap
+	pop af
+	or a
+	jp z,new_piece
+	ld hl,cur_y
+	inc (hl)
+	call plot_bytemap
+	jr instant_drop
+
+check_collision_vert:
+	push bc
+	ld de,arena
+	ld hl,arena_safe
+	ld bc,18*12
+	ldir
+	pop bc
+	ld a,(cur_y)
+	add a,b
+	ld e,a
+	ld d,0
+	ld h,d
+	ld l,e
+	add hl,de
+	add hl,de
+	add hl,hl
+	add hl,hl
+	ld a,(cur_x)
+	ld e,a
+	add hl,de
+	ld de,arena
+	add hl,de
+	ld d,0
+	ld ix,(piece_addr)
+	ld a,(rotation)
+	add a,a
+	ld e,a
+	add ix,de
+	ld b,4
+vert_collision_rows:
+	ld a,(ix)
+	and 15
+	rlca
+	rlca
+	rlca
+	rlca
+	ld d,a
+	ld c,4
+	ld a,(ix)
+	and %11110000
+vert_collision_cols_1:
+	rla
+	push af
+	ld a,0
+	adc a,(hl)
+	cp 2
+	jr nc,no_good
+	pop af
+	inc hl
+	dec c
+	jr nz,vert_collision_cols_1
+	dec b
+	ld c,4
+	ld a,d
+	ld de,8
+	add hl,de
+vert_collision_cols_2:
+	rla
+	push af
+	ld a,0
+	adc a,(hl)
+	cp 2
+	jr nc,no_good
+	pop af
+	inc hl
+	dec c
+	jr nz,vert_collision_cols_2
+	ld de,8
+	add hl,de
+	inc ix
+	djnz vert_collision_rows
+	ld a,3
+	ret
+
+no_good:
+	pop af
+	xor a
+	ret
+
+check_collision_horiz:
+	push bc
+	ld de,arena
+	ld hl,arena_safe
+	ld bc,18*12
+	ldir
+	pop bc
+	ld a,(cur_y)
+	ld e,a
+	ld d,0
+	ld h,d
+	ld l,e
+	add hl,de
+	add hl,de
+	add hl,hl
+	add hl,hl
+	ld a,(cur_x)
+	add a,b
+	ld e,a
+	add hl,de
+	ld de,arena
+	add hl,de
+	ld d,0
+	ld ix,(piece_addr)
+	ld a,(rotation)
+	add a,a
+	ld e,a
+	add ix,de
+	ld b,4
+	jp vert_collision_rows
+
+new_piece:
+	ld a,(level)
+	add a,a
+	inc a
+	ld e,a
+	ld d,0
+	ld hl,(score)
+	add hl,de
+	ld (score),hl
+	call plot_scores
+	ld hl,(next_piece_addr)
+	ld (piece_addr),hl
+	ld hl,arena
+	ld de,arena_safe
+	ld bc,18*12
+	ldir
+	ld hl,arena+1
+	ld b,10
+check_lose_loop:
+	ld a,(hl)
+	or a
+	inc hl
+	jp nz,you_lose
+	djnz check_lose_loop
+	ld hl,arena+13
+	ld b,14
+check_for_lines_outer:
+	ld c,10
+check_for_lines_inner:
+	ld a,(hl)
+	or a
+	jr z,next_row
+	inc hl
+	dec c
+	jr nz,check_for_lines_inner
+	call full_line
+next_row:
+	ld e,c
+	ld d,0
+	add hl,de
+	inc hl
+	inc hl
+	djnz check_for_lines_outer
+	ld hl,arena
+	ld de,arena_safe
+	ld bc,18*12
+	ldir
+	ld a,1
+	ld (multiplier),a
+	call get_new_piece
+	call plot_next
+	xor a
+	ld (cur_y),a
+	ld a,4
+	ld (cur_x),a
+	call plot_bytemap
+	jp main_loop
+
+plot_next:
+	call clear_mini_buf
+	ld hl,mini_buf
+	ld ix,(next_piece_addr)
+	ld b,2
+plot_next_loop_1:
+	ld e,(ix)
+	ld c,8
+plot_next_loop_2:
+	xor a
+	rl e
+	adc a,(hl)
+	ld (hl),a
+	inc hl
+	dec c
+	jr nz,plot_next_loop_2
+	inc ix
+	djnz plot_next_loop_1
+
+copy_mini_buf:
+	ld ix,mini_buf
+	ld hl,((76/4)*256)+12
+	ld b,4
+copy_mini_loop_1:
+	ld c,4
+copy_mini_loop_2:
+	ld e,(ix)
+	sla e
+	sla e
+	ld d,0
+	push ix
+	ld ix,blank
+	add ix,de 
+	push hl
+	push bc
+	ld b,4
+	sla l
+	sla l
+	ld a,h
+	add a,a
+	add a,a
+	call isprite
+	pop bc
+	pop hl
+	pop ix
+	inc ix
+	inc h
+	dec c
+	jr nz,copy_mini_loop_2
+	ld h,76/4
+	inc l
+	djnz copy_mini_loop_1
+	ret
+	
+clear_mini_buf:
+	xor a
+	ld b,16
+	ld hl,mini_buf
+clear_mini_loop:
+	ld (hl),a
+	inc hl
+	djnz clear_mini_loop
+	ld hl,plotsscreen+(72/8)+(12*44)
+	ld b,16
+	ld de,10
+clear_mini_loop_2:
+	ld (hl),a
+	inc hl
+	ld (hl),a
+	inc hl
+	ld (hl),a
+	add hl,de
+	djnz clear_mini_loop_2
+	ret
+
+copy_exch:
+	ld hl,plotsscreen+767-(4+(12*23))
+	ld b,24
+	ld de,exch_buf_padding
+	ld c,11
+copy_exch_loop:
+	ld a,(de)
+	ld (hl),a
+	inc hl
+	inc de
+	ld a,(de)
+	ld (hl),a
+	inc de
+	ld a,b
+	ld b,0
+	add hl,bc
+	ld b,a
+	djnz copy_exch_loop
+	ret
+
+full_line:
+	push hl
+	push bc
+	ld a,(multiplier)
+	ld b,a
+	ld a,(level)
+	ld c,a
+	add a,a
+	add a,a
+	add a,c
+	ld e,a
+	ld d,0
+	ld hl,15
+	add hl,de
+	ex de,hl
+	ld a,b
+	ld hl,(score)
+score_loop:
+	add hl,de
+	djnz score_loop
+	ld (score),hl
+	inc a
+	ld (multiplier),a
+	pop bc
+	pop hl
+	push hl
+	push bc
+	ld de,11
+	sbc hl,de
+	push hl
+	ld de,12
+	add hl,de
+	ld d,h
+	ld e,l
+	ld bc,arena
+	sbc hl,bc	;still nc
+	ld bc,12
+	sbc hl,bc
+	ld b,h
+	ld c,l
+	pop hl
+	lddr
+	ld a,1
+	ld (arena),a
+	ld (arena+11),a
+	xor a
+	ld hl,arena+1
+	ld b,10
+line_loop:
+	ld (hl),a
+	inc hl
+	djnz line_loop
+	ld hl,(lines)
+	inc hl
+	ld (lines),hl
+	push hl
+	bcall(_divhlby10)
+	or a
+	call z,next_level
+	pop hl
+continue_line:
+	call plot_scores
+	pop bc
+	pop hl
+	ret
+
+plot_scores:
+	ld b,5
+	ld de,89+(6*256)
+	ld hl,(lines)
+	call plot_scores_loop_1
+	ld de,89+(18*256)
+	ld b,5
+	ld hl,(score)
+	call plot_scores_loop_1
+	ld de,89+(30*256)
+	ld b,5
+	ld a,(level)
+	ld l,a
+	ld h,0
+plot_scores_loop_1:
+	set textwrite,(iy+sgrflags)
+	push bc
+	push de
+	bcall(_divhlby10)
+	pop de
+	push hl
+	ld (pencol),de
+	push de
+	add a,'0'
+	bcall(_vputmap)
+	pop de
+	pop hl
+	pop bc
+	dec e
+	dec e
+	dec e
+	dec e
+	djnz plot_scores_loop_1
+	res textwrite,(iy+sgrflags)
+	ret
+
+get_new_piece:
+	ld b,55
+	call irandom
+	ld h,0
+	and %11111000
+	ld l,a
+	ld de,piece_formats
+	add hl,de
+	ld (next_piece_addr),hl
+	xor a
+	ld (rotation),a
+	ret
+
+draw_arena:
+	di
+	ld hl,arena
+	ld de,plotsscreen+1
+	ld b,16
+draw_loop_1:
+	ld c,6
+draw_loop_2:
+	push de
+	ld e,(hl)
+	sla e
+	sla e
+	ld ix,blank
+	ld d,0
+	add ix,de
+	inc hl
+	ld iy,blank
+	ld e,(hl)
+	sla e
+	sla e
+	add iy,de
+	inc hl
+	ex de,hl
+	pop hl
+	push de
+	push hl
+	push bc
+	ld de,12
+	ld b,4
+draw_loop_3:
+	ld a,(iy)
+	rrca
+	rrca
+	rrca
+	rrca
+	or (ix)
+	ld (hl),a
+	inc ix
+	inc iy
+	add hl,de
+	djnz draw_loop_3
+	pop bc
+	pop de
+	inc de
+	pop hl
+	dec c
+	jr nz,draw_loop_2
+	push hl
+	ex de,hl
+	ld de,42
+	add hl,de
+	ex de,hl
+	pop hl
+	djnz draw_loop_1
+	ld iy,flags
+	ei
+	ret
+
+plot_bytemap:
+	ld a,(cur_y)
+	ld e,a
+	ld d,0
+	ld h,d
+	ld l,e
+	add hl,de
+	add hl,de
+	add hl,hl
+	add hl,hl
+	ld a,(cur_x)
+	ld e,a
+	add hl,de
+	ld de,arena
+	add hl,de
+	ld b,2
+	ld ix,(piece_addr)
+	ld a,(rotation)
+	add a,a
+	ld e,a
+	ld d,0
+	add ix,de
+plot_bytemap_rows:
+	ld c,2
+	ld a,(ix)
+plot_bytemap_nibbles:
+	ld e,4
+plot_bytemap_columns:
+	rla
+	push af
+	ld a,0			;xor a  will $%#@ with flags :(
+	adc a,(hl)
+	ld (hl),a
+	inc hl
+	pop af
+	dec e
+	jr nz,plot_bytemap_columns
+	ld de,8
+	add hl,de
+	dec c
+	jr nz,plot_bytemap_nibbles
+	inc ix
+	djnz plot_bytemap_rows
+	ret
+
+next_level:
+	ld a,(level)
+	cp 24
+	ret z
+	inc a
+	ld (level),a
+	ld b,a
+	ld a,60
+	sla b
+	sub b
+	ld (speed),a
+#ifdef bg
+	ld a,(shift_bg+1)
+	add a,3
+	ld (shift_bg+1),a
+	call setup_bg
+#endif
+	ret
+
+you_lose:
+exit_game:
+	bcall(_clrlcd)
+	xor a
+	ld (wb_flag),a
+	jp high_scores_check
+
+teacher_key:
+	ld a,1
+	ld (wb_flag),a
+	ret
+setup_bg:
+	ld b,64
+	ld de,12
+	ld hl,plotsscreen
+	ld a,63
+start_loop_1:
+	ld (hl),a
+	rlca
+	add hl,de
+	djnz start_loop_1
+	ld b,64
+	dec e
+	ld hl,plotsscreen+7
+start_loop_2:
+	ld (hl),a
+	inc hl
+	ld (hl),a
+	rlca
+	add hl,de
+	djnz start_loop_2
+	ret
+
+high_scores_check:
+	ld hl,(score)
+	ld bc,(high_score_3)
+	scf
+	sbc hl,bc
+	jp c,disp_hs
+	add hl,bc
+	inc hl
+	ld de,high_scorer_3
+	ld bc,(high_score_2)
+	scf
+	sbc hl,bc
+	jr c,get_name
+	add hl,bc
+	inc hl
+	ld de,high_scorer_2
+	ld bc,(high_score_1)
+	scf
+	sbc hl,bc
+	push af
+	call c,shift_2_to_3
+	pop af
+	jr c,get_name
+	ld de,high_scorer_1
+	call shift_2_to_3_1_to_2
+
+get_name:
+	add hl,bc
+	inc hl
+	ex de,hl
+	push hl
+	dec hl
+	ld (hl),d
+	dec hl
+	ld (hl),e
+	bcall(_clrlcd)
+	ld de,512
+	ld (currow),de
+	ld hl,hs_text
+	bcall(_puts)
+	ld de,(256*3)+2
+	ld (currow),de
+	pop hl
+	ld b,8
+	call keyinput
+	jp disp_hs
+
+shift_2_to_3_1_to_2:
+	di
+	exx
+	ld bc,10
+	ld de,high_score_3
+	ld hl,high_score_2
+	push hl
+	push bc
+	ldir
+	pop bc
+	pop de
+	ld hl,high_score_1
+	ldir
+	exx
+	ei
+	ret
+
+shift_2_to_3:
+	di
+	exx
+	ld bc,10
+	ld de,high_score_3
+	ld hl,high_score_2
+	ldir
+	exx
+	ei
+	ret
+
+keyinput:
+	set textinverse,(iy+textflags)
+	ld de,(currow)
+	push de
+	ld de,0
+	ld (currow),de
+	ld a,'A'
+	bcall(_putc)
+	pop de
+	ld (currow),de
+	res textinverse,(iy+textflags)
+	xor a
+	ld (lowercase_ofs),a
+vkinplp:
+	push hl
+	bcall(_getcsc)
+	pop hl
+	or a
+	jr z,vkinplp
+	cp skEnter
+	jr z,vdoneinput
+	cp skdel
+	jr z,del_let
+	cp skalpha
+	jr z,tog_lower
+	jr nc,vkinplp
+	sub 10
+	jr c,vkinplp
+	jr z,vkinplp
+	push hl
+	ld hl,chartable-1
+	ld e,a
+	ld d,0
+	add hl,de
+	ld a,(hl)
+	pop hl
+	cp $ff
+	jr z,vkinplp
+	ld c,a
+	ld a,(lowercase_ofs)
+	add a,c
+	ld (hl),a
+	bcall(_putc)
+	inc hl
+	djnz vkinplp
+vdoneinput:
+	ld (hl),0
+	ret
+del_let:
+	ld a,b
+	cp 8
+	jr z,vkinplp
+	push hl
+	ld hl,curcol
+	dec (hl)
+	ld a,' '
+	bcall(_putmap)
+	inc b
+	pop hl
+	dec hl
+	jr vkinplp
+tog_lower:
+	set textinverse,(iy+textflags)
+	ld de,(currow)
+	push de
+	ld de,0
+	ld (currow),de	
+	ld a,(lowercase_ofs)
+	xor $20
+	ld (lowercase_ofs),a
+	jr z,upper_tok
+lower_tok:
+	ld a,'a'
+	jr plot_tok
+upper_tok:
+	ld a,'A'
+plot_tok:
+	bcall(_putc)
+	res textinverse,(iy+textflags)
+	pop de
+	ld (currow),de
+	jr vkinplp
+CharTable:
+.db "WRMH",$ff,$ff,"?",ttheta,"VQLG",$ff,$ff
+.db ":ZUPKFC",$ff," YTOJEB",$ff,$ff,"XSNIDA"
+
+
+lines_txt: .db "Lines:",0
+score_txt: .db "Score:",0
+level_txt: .db "Level:",0
+next_txt: .db "Next:",0
+hs_text: .db " Enter Name",0
+hs_disp_text:
+.db   "High Scores:  "
+.db "1.              "
+.db "Score:          "
+.db "2.              "
+.db "Score:          "
+.db "3.              "
+.db "Score:          "
+.db "  Press Enter",0
+
+disp_hs:
+	ld de,512
+	ld (currow),de
+	ld hl,hs_disp_text
+	bcall(_puts)
+	ld de,3*256+1
+	ld (currow),de
+	ld hl,high_scorer_1
+	bcall(_puts)
+	inc e
+	ld d,7
+	ld (currow),de
+	ld hl,(high_score_1)
+	call put_score
+	inc e
+	ld d,3
+	ld (currow),de
+	ld hl,high_scorer_2
+	bcall(_puts)
+	inc e
+	ld d,7
+	ld (currow),de
+	ld hl,(high_score_2)
+	call put_score
+	inc e
+	ld d,3
+	ld (currow),de	
+	ld hl,high_scorer_3
+	bcall(_puts)
+	inc e
+	ld d,7
+	ld (currow),de
+	ld hl,(high_score_3)
+	call put_score
+loop_disp_hs:
+	ei
+	bcall(_getcsc)
+	cp skenter
+	jr nz,loop_disp_hs
+	bcall(_clrlcd)
+	ret
+
+put_score:
+	ld b,5
+	push hl
+	ld hl,curcol
+	inc (hl)
+	inc (hl)
+	inc (hl)
+	inc (hl)
+	pop hl
+put_score_loop:
+	bcall(_divhlby10)
+	add a,'0'
+	bcall(_putmap)
+	push hl
+	ld hl,curcol
+	dec (hl)
+	pop hl
+	djnz put_score_loop
+	ret
+
+high_score_1:
+	.dw 1000
+high_scorer_1:
+	.db "Jon     ",0
+high_score_2:
+	.dw 500
+high_scorer_2:
+	.db "Jon     ",0
+high_score_3:
+	.dw 250
+high_scorer_3:
+	.db "Jon     ",0
+
+blank:
+.db %00000000
+.db %00000000
+.db %00000000
+.db %00000000
+piece_sprite:
+.db %11110000
+.db %10010000
+.db %10010000
+.db %11110000
+piece_formats:
+
+piece_0:
+	.db %00000110	;11
+	.db %01100000	;11
+	.db %00000110
+	.db %01100000
+	.db %00000110
+	.db %01100000
+	.db %00000110
+	.db %01100000
+
+piece_1:
+	.db %00001111	;1
+	.db %00000000	;1
+	.db %01000100	;1
+	.db %01000100	;1
+	.db %00001111
+	.db %00000000
+	.db %01000100
+	.db %01000100
+
+piece_2:
+	.db %01000110	;1
+	.db %00100000	;11
+	.db %00110110	; 1
+	.db %00000000
+	.db %01000110
+	.db %00100000
+	.db %00110110
+	.db %00000000
+
+piece_3:
+	.db %00100110	; 1
+	.db %01000000	;11
+	.db %01100011	;1
+	.db %00000000
+	.db %00100110
+	.db %01000000
+	.db %01100011
+	.db %00000000
+
+piece_4:
+	.db %11001000	;11
+	.db %10000000	;1
+	.db %11100010	;1
+	.db %00000000
+	.db %01000100
+	.db %11000000
+	.db %10001110
+	.db %00000000
+
+piece_5:
+	.db %11000100	;11
+	.db %01000000	; 1
+	.db %00101110	; 1
+	.db %00000000
+	.db %10001000
+	.db %11000000
+	.db %11101000
+	.db %00000000
+
+piece_6:
+	.db %00100111	; 1
+	.db %00000000	;111
+	.db %01000110
+	.db %01000000
+	.db %01110010
+	.db %00000000
+	.db %00100110
+	.db %00100000
+lowercase_ofs:
+	.db 0
+cur_x:
+	.db 0
+cur_y:
+	.db 0
+mov_counter:
+	.db 0
+speed:
+	.db 60
+score:
+	.dw 0
+lines:
+	.dw 0
+multiplier:
+	.db 1
+level:
+	.db 0
+next_piece_addr:
+	.dw 0
+exchange_piece_addr:
+	.dw 0
+mini_buf:
+	.db 0,0,0,0
+	.db 0,0,0,0
+	.db 0,0,0,0
+	.db 0,0,0,0
+piece_addr:
+	.dw 0
+rotation:
+	.db 0
+wb_flag:
+	.db 0
+exch_buf_padding:
+.db %10010000,%00000000
+.db %10010110,%00000000
+.db %11111001,%10000000
+.db %10011001,%10001110
+.db %10011001,%10001001
+.db %00000110,%10001001
+.db %00000000,%11111001
+.db %00000000,%00001110
+exch_buf:
+.dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+arena_safe:
+.db 1,0,0,0,0,0,0,0,0,0,0,1	;1 == a piece or a wall is there, 0 == empty
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,0,0,0,0,0,0,0,0,0,0,1
+.db 1,1,1,1,1,1,1,1,1,1,1,1
+.db 1,1,1,1,1,1,1,1,1,1,1,1
+.db 1,1,1,1,1,1,1,1,1,1,1,1
+
+d_counter: .db %1010101010
+exch_padding_b:
+.db %00000000,%00000000
+.db %01010010,%01000110
+.db %01010101,%01000101
+.db %01110101,%01000101
+.db %01010101,%01000101
+.db %01010010,%01110110
+.db %00000000,%00000000
+.db %00000000,%00000000
+#ifdef bg
+
+bg_0:
+	ld hl,plotsscreen
+	ld de,12
+	ld b,64
+bg_loop_1:
+	rlc (hl)
+	add hl,de
+	djnz bg_loop_1
+	ld hl,plotsscreen+7
+	dec de
+	ld b,64
+bg_loop_2:
+	rrc (hl)
+	inc hl
+	rrc (hl)
+	add hl,de
+	djnz bg_loop_2
+	ret
+bg_1:
+	ld b,64
+	ld de,7
+	ld hl,plotsscreen
+bg_1_loop:
+	ld a,(hl)
+	add hl,de
+	xor (hl)
+	ld (hl),a
+	inc hl
+	xor (hl)
+	ld (hl),a
+	inc hl
+	inc hl
+	inc hl
+	inc hl
+	xor (hl)
+	ld (hl),a
+	djnz bg_1_loop
+	ld (plotsscreen),a
+	ret
+bg_2:
+	ld b,64
+	ld de,7
+	ld hl,plotsscreen
+bg_2_loop:
+	ld a,(hl)
+	add hl,de
+	add a, (hl)
+	ld (hl),a
+	inc hl
+	add a,(hl)
+	ld (hl),a
+	inc hl
+	inc hl
+	inc hl
+	inc hl
+	add a,(hl)
+	ld (hl),a
+	djnz bg_2_loop
+	ld (plotsscreen),a	
+	ret
+bg_3:
+	ld de,12
+	ld hl,plotsscreen
+	ld b,64
+bg_3_loop_1:
+	ld a,(hl)
+	xor 255
+	ld (hl),a
+	add hl,de
+	djnz bg_3_loop_1
+	ld hl,plotsscreen+7
+	dec de
+	ld b,64
+bg_3_loop_2:
+	ld a,(hl)
+	xor 255
+	ld (hl),a
+	inc hl
+	ld a,(hl)
+	xor 255
+	ld (hl),a
+	add hl,de
+	djnz bg_3_loop_2
+	ret
+bg_4:
+	ld hl,plotsscreen
+	ld de,plotsscreen-5
+	ld b,64
+bg_4_loop_1:
+
+	ld a,(hl)
+	ld c,12
+bg_4_loop_2:
+	ex de,hl
+	add a,(hl)
+	ex de,hl
+	sub (hl)
+	inc hl
+	inc de
+	dec c
+	jr nz,bg_4_loop_2
+	ld (hl),a
+	ld (de),a
+	inc de
+	ld (de),a
+	dec de
+	djnz bg_4_loop_1
+	ld (plotsscreen),a
+	ret
+bg_5:
+ ld hl,plotSScreen
+ ld b,64
+ ld de,12
+bg_5_loop_1:
+ rrc (hl)
+ add hl,de
+ djnz bg_5_loop_1
+ ld hl,plotSScreen+7
+ ld b,64
+ dec e
+bg_5_loop_2:
+ rrc (hl)
+ inc hl
+ rrc (hl)
+ add hl,de
+ djnz bg_5_loop_2
+ ret
+bg_6:
+	di
+	ld hl,plotsscreen
+	ld de,7
+	ld bc,4
+	ld a,64
+bg_6_loop:
+	ex af,af'
+	ld a,(hl)
+	xor 255
+	ld (hl),a
+	rlc (hl)
+	add hl,de
+	ld a,(hl)
+	xor 255
+	ld (hl),a
+	rlc (hl)
+	inc hl
+	ld a,(hl)
+	xor 255
+	ld (hl),a
+	rlc (hl)
+	add hl,bc
+	ex af,af'
+	dec a
+	jr nz,bg_6_loop
+	ei
+	ret
+bg_7:
+	ld hl,plotsscreen
+	ld de,(256*64)+7
+	ld bc,4
+bg_7_loop:
+	ld a,r
+	xor (hl)
+	xor (ix+100)
+	ld (hl),a
+	ld a,d
+	ld d,0 
+	add hl,de
+	ld d,a
+	ld a,r
+	xor (hl)
+	xor (ix-1)
+	ld (hl),a
+	inc hl
+	ld a,r
+	xor (hl)
+	xor (ix-33)
+	ld (hl),a
+	add hl,bc
+	dec d
+	jr nz,bg_7_loop
+	ret
+bg_8:
+	di
+	ld a,64
+	ld hl,plotsscreen
+	ld de,7
+	ld bc,4
+bg_8_loop:
+	ex af,af'
+	xor a
+	rld
+	sbc a,(iy-4)
+	adc a,(hl)
+	ld (hl),a
+	add hl,de
+	rld
+	sbc a,(iy-4)
+	ld (hl),a
+	inc hl
+	rld
+	sbc a,(iy-4)
+	ld (hl),a
+	add hl,bc
+	ex af,af'
+	dec a
+	jr nz,bg_8_loop
+	ei
+	ret
+bg_9:
+  ld hl,PlotsScreen+768-12
+  ld b,64
+  ld de,12
+bg_9_loop1:
+  rlc (hl)
+  or a
+  sbc hl,de
+  djnz bg_9_loop1
+  ld hl,PlotsScreen+768-4
+  dec e
+  ld b,64
+bg_9_loop2:
+  rlc (hl)
+  dec hl
+  rlc (hl)
+  or a
+  sbc hl,de
+  djnz bg_9_loop2
+	ret
+bg_10:
+	di
+	ld hl,plotsscreen
+	ld a,64
+	ld de,7
+	ld bc,4
+bg_10_loop:
+	ex af,af'
+	call bg_10_call
+	add hl,de
+	call bg_10_call
+	inc hl
+	call bg_10_call
+	add hl,bc
+	ex af,af'
+	dec a
+	jr nz,bg_10_loop
+	ei
+	ret
+bg_10_call:
+	ld a,(hl)
+	push af
+	exx
+	and 15
+	srl a
+	ld b,a
+	res 3,b
+	and 1
+	rlca
+	rlca
+	rlca
+	or b
+	exx
+	ld (hl),a
+	pop af
+	exx
+	and %11110000
+	rla
+	ld b,a
+	res 4,b
+	and 128
+	rrca
+	rrca
+	rrca
+	or b
+	exx
+	or (hl)
+	ld (hl),a
+	ret
+bg_11:
+	ret
+bg_12:
+	ret
+bg_13:
+	ret
+bg_14:
+	ret
+bg_15:
+	ret
+bg_16:
+	ret
+bg_17:
+	ret
+bg_18:
+	ret
+bg_19:
+	ret
+bg_20:
+	ret
+bg_21:
+	ret
+bg_22:
+	ret
+bg_23:
+	ret
+bg_24:
+	ret
+
+#endif
+.end
